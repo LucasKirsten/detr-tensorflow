@@ -110,6 +110,11 @@ class DETR:
         )
         feature_map = self.backbone(batch_input)
 
+        # Set backbone learning rate order of magnitude smaller
+        feature_map = (1 / 10) * feature_map + (1 - 1 / 10) * tf.stop_gradient(
+            feature_map
+        )
+
         transformer_input = tf.keras.layers.Conv2D(self.dim_transformer, kernel_size=1)(
             feature_map
         )
@@ -168,7 +173,7 @@ class DETR:
         count_images,
         output_dir,
         use_pretrained=None,
-        model=None,
+        model=None
     ):
         """Train the DETR Model.
 
@@ -187,6 +192,7 @@ class DETR:
         use_pretrained : str, optional
             Path to saved pre-trained model weights. Only used if specified and only
             valid if the weights align with the chosen model config.
+        verbose : bool, optional
 
         Returns
         -------
@@ -202,8 +208,13 @@ class DETR:
             model = self.build_model()
 
         if use_pretrained:
-            print("Used pre-trained model weights\n", flush=True)
-            model.load_weights(use_pretrained)
+            print(
+                "Load pre-trained model from: {}\n".format(use_pretrained), flush=True
+            )
+            model = tf.keras.models.load_model(use_pretrained)
+        else:
+            print("Build model from scratch\n", flush=True)
+            model = self.build_model()
 
         print("-------------------------------------------\n", flush=True)
         print(f"Start Training - Total of {epochs} Epochs:\n", flush=True)
@@ -214,7 +225,6 @@ class DETR:
             start = time.time()
             print("-------------------------------------------", flush=True)
             print(f"Epoch: {epoch+1}\n", flush=True)
-
             epoch_loss = np.array([0.0, 0.0, 0.0])
             batch_iteration = 0
 
@@ -249,6 +259,7 @@ class DETR:
                 )
 
                 batch_loss = [loss.numpy() for loss in batch_loss]
+
                 epoch_loss += (1 / len(batch_uuids)) * np.array(batch_loss)
                 batch_iteration += 1
 
@@ -261,7 +272,7 @@ class DETR:
         print("Finalize Training\n", flush=True)
 
         # Save training loss and model
-        model.save_weights("{}/detr_weights".format(output_dir))
+        model.save("{}/detr_model".format(output_dir))
         save_training_loss(detr_loss, "{}/detr_loss.txt".format(output_dir))
 
         return detr_loss
@@ -314,9 +325,12 @@ def _train(
         bbox_loss = calculate_bbox_loss(batch_bbox, detr_bbox, indices)
 
         detr_loss = score_loss + bbox_loss
-        
-    gradients = gradient_tape.gradient(detr_loss, detr.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, detr.trainable_variables))
+
+        gradients = gradient_tape.gradient(detr_loss, detr.trainable_variables)
+        gradients = [
+            tf.clip_by_norm(gradient, tf.constant(0.1)) for gradient in gradients
+        ]
+        optimizer.apply_gradients(zip(gradients, detr.trainable_variables))
 
     return [detr_loss, score_loss, bbox_loss]
 
@@ -339,14 +353,14 @@ def calculate_score_loss(batch_cls, detr_scores, indices):
     Returns
     -------
     tf.Tensor
-        Batch score loss.
+        Average batch score loss.
     """
     batch_score_loss = tf.map_fn(
         lambda el: score_loss(*el),
         elems=[batch_cls, detr_scores, indices],
         dtype=tf.float32,
     )
-    return tf.reduce_sum(batch_score_loss)
+    return tf.reduce_mean(batch_score_loss)
 
 
 @tf.function
@@ -367,7 +381,7 @@ def calculate_bbox_loss(batch_bbox, detr_bbox, indices):
     Returns
     -------
     tf.Tensor
-        Batch bounding box loss
+        Average batch bounding box loss
     """
 
     batch_bbox_loss = tf.map_fn(
@@ -375,5 +389,4 @@ def calculate_bbox_loss(batch_bbox, detr_bbox, indices):
         elems=[batch_bbox, detr_bbox, indices],
         dtype=tf.float32,
     )
-
-    return tf.reduce_sum(batch_bbox_loss)
+    return tf.reduce_mean(batch_bbox_loss)

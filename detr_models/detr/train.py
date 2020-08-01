@@ -6,6 +6,7 @@ from pathlib import Path
 # Ignoring flake8 error code F401
 import ipdb  # noqa: F401
 import tensorflow as tf
+import tensorflow_addons as tfa
 from detr_models.detr.config import DefaultDETRConfig
 from detr_models.detr.model import DETR
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
@@ -23,13 +24,24 @@ def get_args_parser():
         "-o",
         "--output_dir",
         help="Path to store weights and losses",
-        default=os.getcwd(),
+        default=os.path.join(os.getcwd(), "training_results"),
         type=str,
     )
 
     parser.add_argument(
         "-lr", "--learning_rate", default=config.learning_rate, type=float
     )
+    parser.add_argument(
+        "-wd", "--weight_decay", default=config.weight_decay, type=float
+    )
+    parser.add_argument(
+        "-d",
+        "--drops",
+        help="Learning rate and weight decay drop after epochs.",
+        nargs="+",
+        default=config.drops,
+    )
+
     parser.add_argument("-bs", "--batch_size", default=config.batch_size, type=int)
     parser.add_argument("-e", "--epochs", default=config.epochs, type=int)
 
@@ -102,10 +114,17 @@ def get_args_parser():
         action="store_true",
     )
 
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        help="Flag to indicate additional logging",
+        default=False,
+        action="store_true",
+    )
     return parser
 
 
-def get_image_information(storage_path):
+def get_image_information(storage_path: str):
     """Helper function to retrieve image information.
 
     Parameters
@@ -128,6 +147,36 @@ def get_image_information(storage_path):
     sample_image = img_to_array(load_img("{}/{}".format(image_path, images[0])))
     input_shape = sample_image.shape
     return input_shape, count_images
+
+
+def get_decay_schedules(num_steps: int, lr: float, drops: list, weight_decay: float):
+    """Helper function to create learning rate and weight decay schedules.
+
+    Parameters
+    ----------
+    num_steps : int
+        Number of training steps per epoch.
+    lr : float
+        Learning rate at beginning.
+    drops : list
+        Epochs after which lr and wd should drop.
+    weight_decay : float
+        Weight decay multiplier.
+
+    Returns
+    -------
+    tf.optimizer.schedules, tf.optimizer.schedules
+        Learning rate and weight decay schedules.
+    """
+    boundaries = [drop * num_steps for drop in drops]
+    lr_values = [lr] + [lr / (10 ** (idx + 1)) for idx, _ in enumerate(drops)]
+    wd_values = [weight_decay * lr for lr in lr_values]
+
+    lr_schedule = tf.optimizers.schedules.PiecewiseConstantDecay(boundaries, lr_values)
+
+    wd_schedule = tf.optimizers.schedules.PiecewiseConstantDecay(boundaries, wd_values)
+
+    return lr_schedule, wd_schedule
 
 
 def init_training(args):
@@ -168,7 +217,14 @@ def init_training(args):
         train_backbone=args.train_backbone,
     )
 
-    optimizer = tf.keras.optimizers.Adam(args.learning_rate)
+    num_steps = count_images // args.batch_size
+    lr_schedule, wd_schedule = get_decay_schedules(
+        num_steps, args.learning_rate, args.drops, args.weight_decay
+    )
+
+    optimizer = tfa.optimizers.AdamW(
+        weight_decay=wd_schedule, learning_rate=lr_schedule
+    )
 
     detr.train(
         epochs=args.epochs,
@@ -177,6 +233,7 @@ def init_training(args):
         count_images=count_images,
         use_pretrained=args.use_pretrained,
         output_dir=args.output_dir,
+        verbose=args.verbose,
     )
 
 
