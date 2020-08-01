@@ -17,16 +17,16 @@ class Backbone:
         config : dict
             Ditionary to config backbone model. Has to follow the specified schema definition.
         """
-
-        backbone_config = Schema(
-            {
-                Required("input_shape"): Schema((int, int, int)),
-                Required("include_top"): bool,
-                Required("weights"): str,
-            }
-        )
-
-        config = backbone_config(config)
+        
+        #backbone_config = Schema(
+        #    {
+        #        Required("input_shape"): Schema((int, int, int)),
+        #        Required("include_top"): bool,
+        #        Required("weights"): str,
+        #    }
+        #)
+        #
+        #config = backbone_config(config)
 
         if backbone_name == "MobileNetV2":
             self.model = tf.keras.applications.MobileNetV2(**config)
@@ -34,14 +34,16 @@ class Backbone:
             self.model = tf.keras.applications.ResNet50(**config)
         elif backbone_name == "InceptionV3":
             self.model = tf.keras.applications.InceptionV3(**config)
-
+            
         # Remove Layers until Conv4
         for i, layer in enumerate(reversed(self.model.layers)):
-            if layer._name == "conv4_block6_out":
+            if backbone_name == "ResNet50" and layer._name == "conv4_block6_out":
+                break
+            if backbone_name == "MobileNetV2" and layer._name == "block_13_expand_relu":
                 break
             else:
                 self.model._layers.pop()
-
+        
         self.model.layers[-1]._name = "feature_map"
 
         self.model = Model(

@@ -168,6 +168,7 @@ class DETR:
         count_images,
         output_dir,
         use_pretrained=None,
+        model=None,
     ):
         """Train the DETR Model.
 
@@ -193,11 +194,12 @@ class DETR:
             Final training loss.
         """
 
-        print("-------------------------------------------", flush=True)
-        print("-------------------------------------------\n", flush=True)
-        print("Build Model")
+        if model is None:
+            print("-------------------------------------------", flush=True)
+            print("-------------------------------------------\n", flush=True)
+            print("Build Model")
 
-        model = self.build_model()
+            model = self.build_model()
 
         if use_pretrained:
             print("Used pre-trained model weights\n", flush=True)
@@ -235,6 +237,8 @@ class DETR:
                 ) = self.feeder(batch_uuids)
 
                 batch_loss = _train(
+                    num_queries=self.num_queries,
+                    num_classes=self.num_classes,
                     detr=model,
                     optimizer=optimizer,
                     batch_inputs=batch_inputs,
@@ -249,7 +253,7 @@ class DETR:
                 batch_iteration += 1
 
             detr_loss.append(epoch_loss)
-
+            
             print("DETR Loss: %f" % epoch_loss[0], flush=True)
             print(f"Time for epoch {epoch + 1} is {time.time()-start} sec", flush=True)
             print("-------------------------------------------\n", flush=True)
@@ -265,6 +269,8 @@ class DETR:
 
 @tf.function
 def _train(
+    num_queries,
+    num_classes,
     detr,
     optimizer,
     batch_inputs,
@@ -301,16 +307,16 @@ def _train(
         )
 
         indices = bipartite_matching(
-            detr_scores, detr_bbox, batch_cls, batch_bbox, obj_indices
+            num_queries, num_classes, detr_scores, detr_bbox, batch_cls, batch_bbox, obj_indices
         )
 
         score_loss = calculate_score_loss(batch_cls, detr_scores, indices)
         bbox_loss = calculate_bbox_loss(batch_bbox, detr_bbox, indices)
 
         detr_loss = score_loss + bbox_loss
-
-        gradients = gradient_tape.gradient(detr_loss, detr.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, detr.trainable_variables))
+        
+    gradients = gradient_tape.gradient(detr_loss, detr.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, detr.trainable_variables))
 
     return [detr_loss, score_loss, bbox_loss]
 

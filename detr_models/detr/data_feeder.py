@@ -3,7 +3,7 @@
 import ipdb  # noqa: F401
 import numpy as np
 import tensorflow as tf
-from keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
 from numba import float32, int32, jit, njit, types
 from numba.typed import List
 from numpy import loadtxt

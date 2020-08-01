@@ -8,6 +8,7 @@ import tensorflow_addons as tfa
 from detr_models.detr.config import DefaultDETRConfig
 from detr_models.detr.utils import box_cxcywh_to_xyxy
 from scipy.optimize import linear_sum_assignment
+import numpy as np
 
 
 @tf.function
@@ -64,6 +65,8 @@ def tf_linear_sum_assignment(sample_cost_matrix, obj_indices, max_obj=tf.constan
 
 @tf.function
 def prepare_cost_matrix(
+    num_queries,
+    num_classes,
     detr_scores,
     detr_bbox,
     batch_cls,
@@ -96,11 +99,9 @@ def prepare_cost_matrix(
         Note that the number of objects refers to the objects inside the batch. For the bipartite assignment,
         these get sliced to match only the considered sample.
     """
-
-    config = DefaultDETRConfig()
+    
     batch_size = tf.shape(detr_scores)[0]
-    num_queries = config.num_queries
-    num_classes = config.num_classes + 1
+    num_classes = num_classes + 1
 
     # Prepare Outputs
     # [BS * #Queries , #Cls]
@@ -163,7 +164,7 @@ def prepare_cost_matrix(
 
 
 @tf.function
-def bipartite_matching(detr_scores, detr_bbox, batch_cls, batch_bbox, obj_indices):
+def bipartite_matching(num_queries, num_classes, detr_scores, detr_bbox, batch_cls, batch_bbox, obj_indices):
     """Execute the bipartite matching. Given the output scores and bounding boxes, we
     first create a cost matrix using the negative log probabilities, GIoU and L1 loss.
     Then, we assign each object the best fitting (minimal cost) query.
@@ -188,7 +189,7 @@ def bipartite_matching(detr_scores, detr_bbox, batch_cls, batch_bbox, obj_indice
         the indices got padded with `-1` to match `max_obj` in order to constitute a regular tensor.
     """
 
-    cost_matrix = prepare_cost_matrix(detr_scores, detr_bbox, batch_cls, batch_bbox)
+    cost_matrix = prepare_cost_matrix(num_queries, num_classes, detr_scores, detr_bbox, batch_cls, batch_bbox)
 
     batch_idx = tf.map_fn(
         lambda elems: tf_linear_sum_assignment(*elems),
